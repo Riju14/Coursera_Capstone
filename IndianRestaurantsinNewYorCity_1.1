@@ -1,0 +1,777 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Introduction\n",
+    "\n",
+    "New York City is the is the most populous city in the US and the cultural, financial, and media capital of the world being the city with the largest GDP in the world. It is composed of five boroughs, each of which is a county of the State of New York.New York is home to the largest foreign-born population of any city in the world with ~40% of the population being from outside the US. As a result, it is a melting pot of cultures. The diversity of the city translates into the availability of a huge variety of exotic cuisines from around the world. Indian food is a popular food choice and growing in popularity. This project analyses the Indian restaurants in New York city to identify locations with best Indian cuisine.\n",
+    "\n",
+    "## Data Requirement\n",
+    "\n",
+    "The following data will be used :-\n",
+    "1)New York City data that contains list Boroughs, Neighborhoods along with their latitude and longitude.\n",
+    "  Data source : https://cocl.us/new_york_dataset\n",
+    "  Remarks : This data set contains the geographical information of the city and will be used to explore the various\n",
+    "  neighborhoods.\n",
+    "  \n",
+    "2)Indian resturants in each neighborhood\n",
+    "  Data source : Fousquare API\n",
+    "  Description : This will give information on all Indian restaurants in the neighborhoods and associated information such as\n",
+    "  their ratings. We will use restaurant ratings to sort neighborhoods.\n",
+    "\n",
+    "3)GeoSpace data\n",
+    "  Data source : https://data.cityofnewyork.us/City-Government/Borough-Boundaries/tqmj-j8zm\n",
+    "  Description : To visualize the data in a map.\n",
+    "\n",
+    "## Approach\n",
+    "\n",
+    "1)New york city data collected from https://cocl.us/new_york_dataset\n",
+    "2)Find Indian restaurants in each neighborhood using FourSquare API\n",
+    "3)Find rating , tips and like count for each Indian Resturants using FourSquare API.\n",
+    "4)Using rating for each resturant , we will rank neighborhoods\n",
+    "5)Visualize the Ranking of neighborhoods using folium library(python)\n",
+    "\n",
+    "## End Results\n",
+    "What is best location in New York City for Indian Cuisine ?\n",
+    "Which areas have potential Indian Resturant Market ?\n",
+    "Which all areas lack Indian Resturants ?\n",
+    "Which is the best place to stay if I prefer Indian Cuisine ?"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Code"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import pandas as pd\n",
+    "import numpy as np\n",
+    "pd.set_option('display.max_columns', None)\n",
+    "pd.set_option('display.max_rows', None)\n",
+    "import requests\n",
+    "from bs4 import BeautifulSoup\n",
+    "import geocoder\n",
+    "import os\n",
+    "import folium # map rendering library\n",
+    "from geopy.geocoders import Nominatim # convert an address into latitude and longitude values\n",
+    "# Matplotlib and associated plotting modules\n",
+    "import matplotlib.pyplot as plt\n",
+    "import matplotlib.cm as cm\n",
+    "import matplotlib.colors as colors\n",
+    "%matplotlib inline\n",
+    "\n",
+    "\n",
+    "print('Libraries imported.')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def geo_location(address):\n",
+    "    # get geo location of address\n",
+    "    geolocator = Nominatim(user_agent=\"ny_explorer\")\n",
+    "    location = geolocator.geocode(address)\n",
+    "    latitude = location.latitude\n",
+    "    longitude = location.longitude\n",
+    "    return latitude,longitude"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def get_venues(lat,lng):\n",
+    "    \n",
+    "    #set variables\n",
+    "    radius=1000\n",
+    "    LIMIT=100\n",
+    "    CLIENT_ID = os.environ['CLIENT_ID'] # your Foursquare ID\n",
+    "    CLIENT_SECRET = os.environ['CLIENT_SECRET'] # your Foursquare Secret\n",
+    "    VERSION = '20180605' # Foursquare API version\n",
+    "    \n",
+    "    #url to fetch data from foursquare api\n",
+    "    url = 'https://api.foursquare.com/v2/venues/explore?&client_id={}&client_secret={}&v={}&ll={},{}&radius={}&limit={}'.format(\n",
+    "            CLIENT_ID, \n",
+    "            CLIENT_SECRET, \n",
+    "            VERSION, \n",
+    "            lat, \n",
+    "            lng, \n",
+    "            radius, \n",
+    "            LIMIT)\n",
+    "    \n",
+    "    # get all the data\n",
+    "    results = requests.get(url).json()\n",
+    "    venue_data=results[\"response\"]['groups'][0]['items']\n",
+    "    venue_details=[]\n",
+    "    for row in venue_data:\n",
+    "        try:\n",
+    "            venue_id=row['venue']['id']\n",
+    "            venue_name=row['venue']['name']\n",
+    "            venue_category=row['venue']['categories'][0]['name']\n",
+    "            venue_details.append([venue_id,venue_name,venue_category])\n",
+    "        except KeyError:\n",
+    "            pass\n",
+    "        \n",
+    "    column_names=['ID','Name','Category']\n",
+    "    df = pd.DataFrame(venue_details,columns=column_names)\n",
+    "    return df"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def get_venue_details(venue_id):\n",
+    "        \n",
+    "    CLIENT_ID = os.environ['CLIENT_ID'] # your Foursquare ID\n",
+    "    CLIENT_SECRET = os.environ['CLIENT_SECRET'] # your Foursquare Secret\n",
+    "    VERSION = '20180605' # Foursquare API version\n",
+    "    \n",
+    "    #url to fetch data from foursquare api\n",
+    "    url = 'https://api.foursquare.com/v2/venues/{}?&client_id={}&client_secret={}&v={}'.format(\n",
+    "            venue_id,\n",
+    "            CLIENT_ID, \n",
+    "            CLIENT_SECRET, \n",
+    "            VERSION)\n",
+    "    \n",
+    "    # get all the data\n",
+    "    results = requests.get(url).json()\n",
+    "    venue_data=results['response']['venue']\n",
+    "    venue_details=[]\n",
+    "    try:\n",
+    "        venue_id=venue_data['id']\n",
+    "        venue_name=venue_data['name']\n",
+    "        venue_likes=venue_data['likes']['count']\n",
+    "        venue_rating=venue_data['rating']\n",
+    "        venue_tips=venue_data['tips']['count']\n",
+    "        venue_details.append([venue_id,venue_name,venue_likes,venue_rating,venue_tips])\n",
+    "    except KeyError:\n",
+    "        pass\n",
+    "        \n",
+    "    column_names=['ID','Name','Likes','Rating','Tips']\n",
+    "    df = pd.DataFrame(venue_details,columns=column_names)\n",
+    "    return df"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def get_new_york_data():\n",
+    "    url='https://cocl.us/new_york_dataset'\n",
+    "    resp=requests.get(url).json()\n",
+    "    # all data is present in features label\n",
+    "    features=resp['features']\n",
+    "    \n",
+    "    # define the dataframe columns\n",
+    "    column_names = ['Borough', 'Neighborhood', 'Latitude', 'Longitude'] \n",
+    "    # instantiate the dataframe\n",
+    "    new_york_data = pd.DataFrame(columns=column_names)\n",
+    "    \n",
+    "    for data in features:\n",
+    "        borough = data['properties']['borough'] \n",
+    "        neighborhood_name = data['properties']['name']\n",
+    "        \n",
+    "        neighborhood_latlon = data['geometry']['coordinates']\n",
+    "        neighborhood_lat = neighborhood_latlon[1]\n",
+    "        neighborhood_lon = neighborhood_latlon[0]\n",
+    "    \n",
+    "        new_york_data = new_york_data.append({'Borough': borough,\n",
+    "                                          'Neighborhood': neighborhood_name,\n",
+    "                                          'Latitude': neighborhood_lat,\n",
+    "                                          'Longitude': neighborhood_lon}, ignore_index=True)\n",
+    "    \n",
+    "    return new_york_data"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# get new york data\n",
+    "new_york_data=get_new_york_data()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "new_york_data.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "new_york_data.shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "plt.figure(figsize=(9,5), dpi = 100)\n",
+    "# title\n",
+    "plt.title('Number of Neighborhood for each Borough in New York City')\n",
+    "#On x-axis\n",
+    "plt.xlabel('Borough', fontsize = 15)\n",
+    "#On y-axis\n",
+    "plt.ylabel('No.of Neighborhood', fontsize=15)\n",
+    "#giving a bar plot\n",
+    "new_york_data.groupby('Borough')['Neighborhood'].count().plot(kind='bar')\n",
+    "#legend\n",
+    "plt.legend()\n",
+    "#displays the plot\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# prepare neighborhood list that contains indian resturants\n",
+    "column_names=['Borough', 'Neighborhood', 'ID','Name']\n",
+    "indian_rest_ny=pd.DataFrame(columns=column_names)\n",
+    "count=1\n",
+    "for row in new_york_data.values.tolist():\n",
+    "    Borough, Neighborhood, Latitude, Longitude=row\n",
+    "    venues = get_venues(Latitude,Longitude)\n",
+    "    indian_resturants=venues[venues['Category']=='Indian Restaurant']   \n",
+    "    print('(',count,'/',len(new_york_data),')','Indian Resturants in '+Neighborhood+', '+Borough+':'+str(len(indian_resturants)))\n",
+    "    for resturant_detail in indian_resturants.values.tolist():\n",
+    "        id, name , category=resturant_detail\n",
+    "        indian_rest_ny = indian_rest_ny.append({'Borough': Borough,\n",
+    "                                                'Neighborhood': Neighborhood, \n",
+    "                                                'ID': id,\n",
+    "                                                'Name' : name\n",
+    "                                               }, ignore_index=True)\n",
+    "    count+=1"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "indian_rest_ny.shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "plt.figure(figsize=(9,5), dpi = 100)\n",
+    "# title\n",
+    "plt.title('Number of Indian Resturants for each Borough in New York City')\n",
+    "#On x-axis\n",
+    "plt.xlabel('Borough', fontsize = 15)\n",
+    "#On y-axis\n",
+    "plt.ylabel('No.of Indian Resturants', fontsize=15)\n",
+    "#giving a bar plot\n",
+    "indian_rest_ny.groupby('Borough')['ID'].count().plot(kind='bar')\n",
+    "#legend\n",
+    "plt.legend()\n",
+    "#displays the plot\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "plt.figure(figsize=(9,5), dpi = 100)\n",
+    "# title\n",
+    "plt.title('Number of Indian Resturants for each Neighborhood in New York City')\n",
+    "#On x-axis\n",
+    "plt.xlabel('Neighborhood', fontsize = 15)\n",
+    "#On y-axis\n",
+    "plt.ylabel('No.of Indian Resturants', fontsize=15)\n",
+    "#giving a bar plot\n",
+    "indian_rest_ny.groupby('Neighborhood')['ID'].count().nlargest(5).plot(kind='bar')\n",
+    "#legend\n",
+    "plt.legend()\n",
+    "#displays the plot\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "indian_rest_ny[indian_rest_ny['Neighborhood']=='Floral Park']"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# prepare neighborhood list that contains indian resturants\n",
+    "column_names=['Borough', 'Neighborhood', 'ID','Name','Likes','Rating','Tips']\n",
+    "indian_rest_stats_ny=pd.DataFrame(columns=column_names)\n",
+    "count=1\n",
+    "\n",
+    "\n",
+    "for row in indian_rest_ny.values.tolist():\n",
+    "    Borough,Neighborhood,ID,Name=row\n",
+    "    try:\n",
+    "        venue_details=get_venue_details(ID)\n",
+    "        print(venue_details)\n",
+    "        id,name,likes,rating,tips=venue_details.values.tolist()[0]\n",
+    "    except IndexError:\n",
+    "        print('No data available for id=',ID)\n",
+    "        # we will assign 0 value for these resturants as they may have been \n",
+    "        #recently opened or details does not exist in FourSquare Database\n",
+    "        id,name,likes,rating,tips=[0]*5\n",
+    "    print('(',count,'/',len(indian_rest_ny),')','processed')\n",
+    "    indian_rest_stats_ny = indian_rest_stats_ny.append({'Borough': Borough,\n",
+    "                                                'Neighborhood': Neighborhood, \n",
+    "                                                'ID': id,\n",
+    "                                                'Name' : name,\n",
+    "                                                'Likes' : likes,\n",
+    "                                                'Rating' : rating,\n",
+    "                                                'Tips' : tips\n",
+    "                                               }, ignore_index=True)\n",
+    "    count+=1"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "indian_rest_stats_ny.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "indian_rest_stats_ny.shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "indian_rest_ny.shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "indian_rest_stats_ny.to_csv('indian_rest_stats_ny.csv', index=False)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "indian_rest_stats_ny_csv=pd.read_csv('indian_rest_stats_ny.csv')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "indian_rest_stats_ny_csv.shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "indian_rest_stats_ny_csv.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "indian_rest_stats_ny.info()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "indian_rest_stats_ny['Likes']=indian_rest_stats_ny['Likes'].astype('float64')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "indian_rest_stats_ny['Tips']=indian_rest_stats_ny['Tips'].astype('float64')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "indian_rest_stats_ny.info()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "\n",
+    "# Resturant with maximum Likes\n",
+    "indian_rest_stats_ny.iloc[indian_rest_stats_ny['Likes'].idxmax()]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Resturant with maximum Rating\n",
+    "indian_rest_stats_ny.iloc[indian_rest_stats_ny['Rating'].idxmax()]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Resturant with maximum Tips\n",
+    "indian_rest_stats_ny.iloc[indian_rest_stats_ny['Tips'].idxmax()]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ny_neighborhood_stats=indian_rest_stats_ny.groupby('Neighborhood',as_index=False).mean()[['Neighborhood','Rating']]\n",
+    "ny_neighborhood_stats.columns=['Neighborhood','Average Rating']"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "\n",
+    "ny_neighborhood_stats.sort_values(['Average Rating'],ascending=False).head(10)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ny_borough_stats=indian_rest_stats_ny.groupby('Borough',as_index=False).mean()[['Borough','Rating']]\n",
+    "ny_borough_stats.columns=['Borough','Average Rating']"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ny_borough_stats.sort_values(['Average Rating'],ascending=False).head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "plt.figure(figsize=(9,5), dpi = 100)\n",
+    "# title\n",
+    "plt.title('Average rating of Indian Resturants for each Borough')\n",
+    "#On x-axis\n",
+    "plt.xlabel('Borough', fontsize = 15)\n",
+    "#On y-axis\n",
+    "plt.ylabel('Average Rating', fontsize=15)\n",
+    "#giving a bar plot\n",
+    "indian_rest_stats_ny.groupby('Borough').mean()['Rating'].plot(kind='bar')\n",
+    "#legend\n",
+    "plt.legend()\n",
+    "#displays the plot\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ny_neighborhood_stats=ny_neighborhood_stats[ny_neighborhood_stats['Average Rating']>=9.0]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ny_neighborhood_stats"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ny_neighborhood_stats=pd.merge(ny_neighborhood_stats,new_york_data, on='Neighborhood')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ny_neighborhood_stats=ny_neighborhood_stats[['Borough','Neighborhood','Latitude','Longitude','Average Rating']]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ny_neighborhood_stats"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# create map and display it\n",
+    "ny_map = folium.Map(location=geo_location('New York'), zoom_start=12)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# instantiate a feature group for the incidents in the dataframe\n",
+    "incidents = folium.map.FeatureGroup()\n",
+    "\n",
+    "# loop through the 100 crimes and add each to the incidents feature group\n",
+    "for lat, lng, in ny_neighborhood_stats[['Latitude','Longitude']].values:\n",
+    "    incidents.add_child(\n",
+    "        folium.CircleMarker(\n",
+    "            [lat, lng],\n",
+    "            radius=10, # define how big you want the circle markers to be\n",
+    "            color='yellow',\n",
+    "            fill=True,\n",
+    "            fill_color='blue',\n",
+    "            fill_opacity=0.6\n",
+    "        )\n",
+    "    )"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ny_neighborhood_stats['Label']=ny_neighborhood_stats['Neighborhood']+', '+ny_neighborhood_stats['Borough']+'('+ny_neighborhood_stats['Average Rating'].map(str)+')'"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# add pop-up text to each marker on the map\n",
+    "for lat, lng, label in ny_neighborhood_stats[['Latitude','Longitude','Label']].values:\n",
+    "    folium.Marker([lat, lng], popup=label).add_to(ny_map)        \n",
+    "# add incidents to map\n",
+    "ny_map.add_child(incidents)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ny_map = folium.Map(location=geo_location('New York'), zoom_start=12)\n",
+    "ny_geo = r'Borough Boundaries.geojson'\n",
+    "\n",
+    "ny_map.choropleth(\n",
+    "    geo_data=ny_geo,\n",
+    "    data=ny_borough_stats,\n",
+    "    columns=['Borough', 'Average Rating'],\n",
+    "    key_on='feature.properties.boro_name',\n",
+    "    fill_color='YlOrRd', \n",
+    "    fill_opacity=0.7, \n",
+    "    line_opacity=0.2,\n",
+    "    legend_name='Average Rating'\n",
+    ")\n",
+    "\n",
+    "# display map\n",
+    "# as this is huge map data , we will save it to a file\n",
+    "ny_map.save('borough_rating.html')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Limitations\n",
+    "\n",
+    "1)The accuracy of data is dependant on Foursquare data which is crowd sourced\n",
+    "2)The basis for analysing the restaurants and the neighborhoods are customer ratings of restaurants which are relative and vary   from person to person"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Conclusion\n",
+    "\n",
+    "* There are 153 Indian restaurants in New York\n",
+    "* Borough wise, Queens has the largest number of Indian restaurants and Bronx and Staten Island the lowest\n",
+    "* Neighbourhood wise, Floral Park, Richmond Hill and Woolside have the most Indian restaurants\n",
+    "* Astoria(Queens), Blissville(Queens), Civic Center(Manhattan) have the best rated Indian restaurants.\n",
+    "* Manhattan is the best place to stay in if you prefer Indian Cuisine.\n",
+    "* Staten Island has the lowest number and lowest ranked Indian restaurants. There is business potential in opening an Indian restaurant there since it will be easy to gain market share as the competition is not strong.\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.7.6"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}
